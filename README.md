@@ -7,10 +7,11 @@ The project is used to handle communication from the ChatGPT Website to Discord.
 
 ### Setup
 
-1. Install the required packages by running `setup.py`. This will install the required packages and create the `config.py` file.
-2. Fill in the necessary values in the `config.py` file. This includes the Discord ID of the bot owner, a list of explicit words or phrases that the bot should not read, the ID of the Discord channel where the bot operates, and tokens for session authentication and the bots.
-3. Please read more about [re_gpt](https://github.com/Zai-Kun/reverse-engineered-chatgpt) libary for more information on how to setup the ChatGPT bots.
-4. Setup the bots themselves on the [ChatGPT](https://chat.openai.com/) website. Using whatever prompts you want for the two bots.
+1. Clone the forked repository to your local machine. You can do this by running the command `git clone https://github.com/Yosef13103/SchizoChatBots.git` in your terminal.
+2. Install the required packages by running `setup.py`. This will install the required packages and create the `config.py` file.
+3. Fill in the necessary values in the `config.py` file. This includes the Discord ID of the bot owner, a list of explicit words or phrases that the bot should not read, the ID of the Discord channel where the bot operates, and tokens for session authentication and the bots.
+4. Please read more about [re_gpt](https://github.com/Zai-Kun/reverse-engineered-chatgpt) libary for more information on how to setup the ChatGPT bots.
+5. Setup the bots themselves on the [ChatGPT](https://chat.openai.com/) website. Using whatever prompts you want for the two bots.
 
 ### Usage
 
