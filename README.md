@@ -90,7 +90,8 @@ The `/uptime` command displays the bot's uptime. The bot responds with a message
 
 The `/send` command sends a message as the bot. This command can only be used in a specific channel and by the bot owner. The message to be sent is provided as an argument to the command.
 
-## Acknowledgement
+## Acknowledgements
 - [interactions.py](https://github.com/interactions-py/interactions.py) | Discord API
-- [re_gpt](https://github.com/Zai-Kun/reverse-engineered-chatgpt) | ChatGPT API
+- [re_gpt](https://github.com/Zai-Kun/reverse-engineered-chatgpt) | ChatGPT Website API
+- [ChatGPT](https://chat.openai.com/) | ChatGPT Website
 - [Pollinations AI](https://image.pollinations.ai/) | Image Generation
