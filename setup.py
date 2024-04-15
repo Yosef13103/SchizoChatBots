@@ -2,6 +2,7 @@ import os
 
 # Install the required packages
 os.system('pip install -r requirements.txt')
+os.system('python -m spacy download en_core_web_md')
 
 # Define the content of config.py
 config_content = """### CONFIGURATION FILE ###

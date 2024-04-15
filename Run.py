@@ -1,4 +1,3 @@
-# Run.py
 import asyncio
 from Control import start_bots
 
