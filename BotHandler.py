@@ -292,7 +292,7 @@ class BotHandler:
             if self.time_since_last_message == 0 or self.time_since_last_message is None:
                 await say(ctx, "No messages have been received yet.")
             else:
-                time_difference = datetime.now() - self.time_since_last_message
+                time_difference = datetime.datetime.now() - self.time_since_last_message
                 await say(ctx, f"Time since last message: {get_time(time_difference)}")
 
         def get_time(time):
@@ -517,7 +517,7 @@ class BotHandler:
         if len(fetched_messages) == 0:
             if self.bot.user.id == botOne_ID:
                 await channel.send("Hello there!") # type: ignore
-                self.time_since_last_message = datetime.now()  # update the timestamp
+                self.time_since_last_message = datetime.datetime.now()  # update the timestamp
             return
 
         other_bot_id = botTwo_ID if self.bot.user.id == botOne_ID else botOne_ID
@@ -525,7 +525,7 @@ class BotHandler:
             if fetched_message.author.id == other_bot_id:
                 message_event = BotHandler.MessageEvent(fetched_message)
                 await self.process_message(message_event, "Edit")
-                self.time_since_last_message = datetime.now()  # update the timestamp
+                self.time_since_last_message = datetime.datetime.now()  # update the timestamp
                 break
 
     async def check_if_looping(self):
