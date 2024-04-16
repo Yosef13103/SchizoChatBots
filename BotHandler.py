@@ -21,8 +21,9 @@ moodList =["happy", "sad", "angry", "excited", "calm", "confused", "surprised", 
 # Set up a single logger
 logging.basicConfig(
     filename='bot.log',
+    filemode="a",
     level=logging.INFO,
-    format=' %(asctime)s %(message)s',  # Include timestamp
+    format='%(asctime)s %(message)s',  # Include timestamp
     datefmt='%m/%d/%Y %I:%M:%S %p'  # Format of timestamp
 )
 
@@ -45,9 +46,9 @@ def log_message(bot, message, type='INFO'):
     type = type.upper()
     try:
         if bot == botOneHandler.bot:
-            messagee = f'[botOneHandler] {message}'
+            messagee = f'- [1️⃣ botOneHandler] {message}'
         elif bot == botTwoHandler.bot:
-            messagee = f'[botTwoHandler] {message}'
+            messagee = f'- [2️⃣ botTwoHandler] {message}'
 
         if type == 'ERROR':
             logging.exception(f'{messagee}')
@@ -116,6 +117,7 @@ class BotHandler:
         self.mood_change_frequency = 10  # Change mood every 5 messages
         self.message_count = 0
         self.time_since_last_message = 0
+        self.is_ready = False
 
         @self.bot.listen()
         async def on_ready():
@@ -130,20 +132,23 @@ class BotHandler:
             Returns:
                 None
             """
-            print("---------------------------------------------------------------------------")
+            if self.is_ready:
+                log_message(self.bot, f"Bot reconnected to Discord as {self.bot.user}")
+                await self.check_messages()
+                return
+
+            log_message(self.bot, "---------------------------------------------------------------------------")
             message = f"Bot connected to Discord as {self.bot.user}"
             log_message(self.bot, message)
-
-            # Get the logchannelID channel
-            log_channel = self.bot.get_channel(logchannelID)
-            # Send a message to the logchannelID channel
-            await log_channel.send(message)
+            await self.log_channel_message(message)
 
             # Do a first check to see if the bot can respond to a previous message
-            self.check_messages()
+            await self.check_messages()
 
             # Start the timer to have it continously check for messages.
             self.check_messages_timer.start(self)
+
+            self.is_ready = True
 
         @slash_command(name="restart", description="Restarts the bot")
         async def restart(ctx: SlashContext):
@@ -165,12 +170,10 @@ class BotHandler:
             await say(ctx, f"[{timetime.strftime('%H:%M:%S', timetime.localtime())}]: Restarting...")
             log_message(self.bot, f"User <@{authorr}> restarted the bot.")
 
-            # Get the logchannelID channel
-            log_channel = self.bot.get_channel(logchannelID)
-            # Send a message to the logchannelID channel
-            await log_channel.send(f"Bot was restarted by <@{authorr}>.")
+            await self.log_channel_message(f"Bot was restarted by <@{authorr}>.")
 
             await Control.restart_bots()
+            self.is_ready = False
 
         @slash_command(name="stop", description="Stops the bot")
         async def stop(ctx: SlashContext):
@@ -192,12 +195,9 @@ class BotHandler:
             await say(ctx, f"[{timetime.strftime('%H:%M:%S', timetime.localtime())}]: Stopping...")
             log_message(self.bot, f"User <@{authorr}> stopped the bot.")
 
-            # Get the logchannelID channel
-            log_channel = self.bot.get_channel(logchannelID)
-            # Send a message to the logchannelID channel
-            await log_channel.send(f"Bot was stopped by <@{authorr}>.")
+            await self.log_channel_message(f"Bot was stopped by <@{authorr}>.")
 
-            Control.stop_bots()
+            await Control.stop_bots()
 
         @slash_command(name="ping", description="Pings the bot")
         async def ping(ctx: SlashContext):
@@ -249,6 +249,7 @@ class BotHandler:
             - None
             """
             if ctx.channel.id != channelID or ctx.user.id != ownerID:
+                await say(ctx, "Sending messages is only allowed in the chat channel by the owner.")
                 return
             await ctx.send(message)
 
@@ -270,17 +271,20 @@ class BotHandler:
             Returns:
             None
             """
-            if ctx.channel.id != channelID or ctx.user.id != ownerID:
+            if ctx.user.id != ownerID:
+                await say(ctx, "Updating the prompt is only allowed by the owner.")
                 return
-
-            with SyncChatGPT(session_token=session_token) as chatgpt:
-                conversation = chatgpt.get_conversation(botOne_conversation_id if self.bot.user.id == botOne_ID else botTwo_conversation_id)
-
-                # Send the message to the bot, without a reply back
-                for chat_message in conversation.chat(message):
-                    message_content = chat_message["content"]
+            try:
+                with SyncChatGPT(session_token=session_token) as chatgpt:
+                    conversation = chatgpt.get_conversation(botOne_conversation_id if self.bot.user.id == botOne_ID else botTwo_conversation_id)
                     log_message(self.bot, f"Updating prompt: {message}")
-                    log_message(self.bot, f"Bot response: {message_content}")
+                    # Send the message to the bot, without a reply back
+                    for chat_message in conversation.chat(message):
+                        message_content = chat_message["content"]
+                        log_message(self.bot, f"Bot response: {message_content}")
+                await say(ctx, f"Prompt updated successfully.")
+            except:
+                log_message(self.bot, "An error occurred while updating the prompt.", "error")
 
         @slash_command(name="time_since_last_message", description="Shows the time since the last message was received by the bot")
         async def time_since_last_message(ctx: SlashContext):
@@ -333,6 +337,12 @@ class BotHandler:
         self.bot.add_command(send)
         self.bot.add_command(update_prompt)
         self.bot.add_command(time_since_last_message)
+
+    async def log_channel_message(self, message):
+        # Get the logchannelID channel
+        log_channel = self.bot.get_channel(logchannelID)
+        # Send a message to the logchannelID channel
+        await log_channel.send(message)
 
     async def process_message(self, event, type):
         """
@@ -486,6 +496,8 @@ class BotHandler:
             # Don't send anything back to the user
             # Return with no error message
             log_message(self.bot, f"UnexpectedResponseError occurred: {e}", "error")
+            # Send to log channel
+
             return
 
     class MessageEvent:
@@ -501,7 +513,7 @@ class BotHandler:
 
     @Task.create(IntervalTrigger(minutes=15))
     async def check_messages_timer(self):
-        self.check_messages()
+        await self.check_messages()
 
     async def check_messages(self):
         """
@@ -514,8 +526,6 @@ class BotHandler:
         - If there are no messages in the channel, and the bot's ID matches `botOne_ID`, it sends an introduction message.
         - If there are messages in the channel sent by the other bot (identified by `botTwo_ID` if the current bot's ID is `botOne_ID`, and vice versa),
             it processes the message using the `process_message` method.
-
-        Note: Replace `channelID`, `botOne_ID`, and `botTwo_ID` with the actual channel ID and bot IDs in your code.
 
         Returns:
             None

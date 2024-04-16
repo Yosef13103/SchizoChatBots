@@ -1,6 +1,6 @@
-# Stop.py
+import asyncio
 from Control import stop_bots
 
 # Stop the bots
-stop_bots()
+asyncio.run(stop_bots())
 
