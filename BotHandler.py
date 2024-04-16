@@ -2,7 +2,7 @@ import interactions
 from interactions import IntervalTrigger, SlashContext, ActivityType, OptionType, Task, IntervalTrigger
 from interactions import slash_command, slash_option
 import time as timetime
-from re_gpt import SyncChatGPT
+from re_gpt import SyncChatGPT, errors
 import asyncio, aiohttp, aiofiles, re, urllib.parse, logging, random, sys, datetime, os, json, spacy
 from config import *
 import Control
@@ -16,7 +16,7 @@ moodList =["happy", "sad", "angry", "excited", "calm", "confused", "surprised", 
            "optimistic", "peaceful", "pensive", "refreshed", "restless", "satisfied", "thankful", "tired", "worried",
            "zany", "bipolar", "depressed", "anxious", "joyful", "bulimic", "fearless", "insecure", "jealous", "manic",
            "paranoid", "passionate", "shy", "silly", "stressed", "weird", "hopeful", "guilty", "disgusted", "envious",
-           "hateful", "insulted", "insulting", "bullying", "bullied", "hurt", "grief", "romantic", "lustful", "horny"]
+           "hateful", "insulted", "insulting", "bullied", "hurt", "grief", "romantic", "lustful", "horny"]
 
 # Set up a single logger
 logging.basicConfig(
@@ -139,7 +139,11 @@ class BotHandler:
             # Send a message to the logchannelID channel
             await log_channel.send(message)
 
-            self.check_messages.start(self)
+            # Do a first check to see if the bot can respond to a previous message
+            self.check_messages()
+
+            # Start the timer to have it continously check for messages.
+            self.check_messages_timer.start(self)
 
         @slash_command(name="restart", description="Restarts the bot")
         async def restart(ctx: SlashContext):
@@ -455,27 +459,34 @@ class BotHandler:
         return response_message
 
     async def get_from_api(self, event, prompt):
-        with SyncChatGPT(session_token=session_token) as chatgpt:
-            conversation = chatgpt.get_conversation(botOne_conversation_id if self.bot.user.id == botOne_ID else botTwo_conversation_id)
+        try:
+            with SyncChatGPT(session_token=session_token) as chatgpt:
+                conversation = chatgpt.get_conversation(botOne_conversation_id if self.bot.user.id == botOne_ID else botTwo_conversation_id)
 
-            response_message = ""
+                response_message = ""
 
-            for chat_message in conversation.chat(prompt):
-                message_content = chat_message["content"]
-                if message_content.strip():
-                    response_message += message_content
+                for chat_message in conversation.chat(prompt):
+                    message_content = chat_message["content"]
+                    if message_content.strip():
+                        response_message += message_content
+                            # Truncate the message if it's too long
+                        response_message = response_message[:2000]
+                        if 'sent_message' not in locals():
+                            sent_message = await event.message.reply(response_message + "... ​")
+                        else:
+                            await sent_message.edit(content=response_message + "... ​")
+
+                if 'sent_message' in locals():
                         # Truncate the message if it's too long
                     response_message = response_message[:2000]
-                    if 'sent_message' not in locals():
-                        sent_message = await event.message.reply(response_message + "... ​")
-                    else:
-                        await sent_message.edit(content=response_message + "... ​")
-
-            if 'sent_message' in locals():
-                    # Truncate the message if it's too long
-                response_message = response_message[:2000]
-                await sent_message.edit(content=response_message)
-                log_message(self.bot, f"Full Message: {response_message}")
+                    await sent_message.edit(content=response_message)
+                    log_message(self.bot, f"Full Message: {response_message}")
+        except errors.UnexpectedResponseError as e:
+            # Something went wrong with the API request, usually internet connection issues
+            # Don't send anything back to the user
+            # Return with no error message
+            log_message(self.bot, f"UnexpectedResponseError occurred: {e}", "error")
+            return
 
     class MessageEvent:
         """
@@ -489,6 +500,9 @@ class BotHandler:
             self.message = message
 
     @Task.create(IntervalTrigger(minutes=15))
+    async def check_messages_timer(self):
+        self.check_messages()
+
     async def check_messages(self):
         """
         Check the messages in a channel and process them accordingly.
@@ -531,7 +545,8 @@ class BotHandler:
     async def check_if_looping(self):
         if len(self.last_messages) < 2:
             return None
-
+        errored = "I'm sorry, I don't have a response for that."
+        error = False
         last_message = self.last_messages[-1]
         second_last_message = self.last_messages[-2]
 
@@ -541,11 +556,14 @@ class BotHandler:
         similarity = last_message_doc.similarity(second_last_message_doc)
         length = len(second_last_message)
 
-        if similarity > similarity_level or length > max_char:
+        if last_message == errored or second_last_message == errored:
+            error = True
+
+        if similarity > similarity_level or length > max_char or last_message==second_last_message or error==True:
             log_message(self.bot, "Messages are too similar, starting a new topic...")
 
             current_time = str(datetime.datetime.now())
-            reason = f"similarity of {similarity}" if similarity > similarity_level else f"length of {length} characters"
+            reason = f"similarity of {similarity}" if similarity > similarity_level else f"length of {length} characters" if length > max_char else "Same message" if last_message==second_last_message else "Error messaged: \"I'm sorry, I don't have a response for that.\"" if error==True else "Unknown"
             data = {
                 "time": current_time,
                 "last_message": last_message,
