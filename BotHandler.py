@@ -5,18 +5,8 @@ import time as timetime
 from re_gpt import SyncChatGPT, errors
 import asyncio, aiohttp, aiofiles, re, urllib.parse, logging, random, sys, datetime, os, json, spacy, subprocess
 from config import *
-import Control
 
 nlp = spacy.load('en_core_web_md')
-similarity_level = 0.8
-max_char = 500
-
-moodList =["happy", "sad", "angry", "excited", "calm", "confused", "surprised", "bored", "playful", "serious", "scared",
-           "thoughtful", "friendly", "sarcastic", "curious", "proud", "energetic",  "amused", "lonely", "nostalgic",
-           "optimistic", "peaceful", "pensive", "refreshed", "restless", "satisfied", "thankful", "tired", "worried",
-           "zany", "bipolar", "depressed", "anxious", "joyful", "bulimic", "fearless", "insecure", "jealous", "manic",
-           "paranoid", "passionate", "shy", "silly", "stressed", "weird", "hopeful", "guilty", "disgusted", "envious",
-           "hateful", "insulted", "insulting", "bullied", "hurt", "grief", "romantic", "lustful", "horny"]
 
 # Set up a single logger
 logging.basicConfig(
@@ -24,7 +14,7 @@ logging.basicConfig(
     filemode="a",
     format='%(asctime)s %(message)s',  # Include timestamp
     datefmt='%m/%d/%Y %I:%M:%S %p',  # Format of timestamp
-    encoding='utf-8'  # Use utf-8 encoding
+    level=logging.INFO  # Set the logging level to INFO
 )
 
 python = sys.executable
@@ -521,7 +511,7 @@ class BotHandler:
         def __init__(self, message):
             self.message = message
 
-    @Task.create(IntervalTrigger(minutes=15))
+    @Task.create(IntervalTrigger(minutes=minutes_per_message))
     async def check_messages_timer(self):
         await self.check_messages()
 
@@ -547,7 +537,7 @@ class BotHandler:
         fetched_messages = await channel.history(limit=6).flatten() # type: ignore
 
         bot_messages = [message for message in fetched_messages if message.author.id == self.bot.user.id]
-        self.last_messages = bot_messages[-2:]  # add the last two messages sent by the bot to self.last_messages
+        self.last_messages = bot_messages[-4:]  # add the last four messages sent by the bot to self.last_messages
 
         # if the last message is an error message
         if fetched_messages[0] == f"<@{ownerID}> ... ​" or all(message == self.error_message for message in fetched_messages[:3]):
@@ -575,39 +565,51 @@ class BotHandler:
                 break
 
     async def check_if_looping(self):
-        if len(self.last_messages) < 2:
+        if len(self.last_messages) < 4:
             return None
 
         error = False
-        last_message = self.last_messages[-1].content
-        second_last_message = self.last_messages[-2].content
+        similarities = []
+        for i in range(-1, -4, -1):
+            last_message = self.last_messages[i].content
+            second_last_message = self.last_messages[i-1].content
 
-        last_message_doc = nlp(last_message)
-        second_last_message_doc = nlp(second_last_message)
+            if last_message == self.error_message or second_last_message == self.error_message:
+                error = True
 
-        similarity = last_message_doc.similarity(second_last_message_doc)
+            last_message_doc = nlp(last_message)
+            second_last_message_doc = nlp(second_last_message)
+
+            similarity = last_message_doc.similarity(second_last_message_doc)
+            similarities.append(similarity)
+
+        avg_similarity = sum(similarities) / len(similarities)
         length = len(second_last_message)
 
-        if last_message == self.error_message or second_last_message == self.error_message:
-            error = True
-
-        if similarity > similarity_level or length > max_char or last_message==second_last_message or error==True:
+        if avg_similarity > self.similarity_level or length > self.max_char or error:
             log_message(self.bot, "Messages are too similar, starting a new topic...")
 
             current_time = str(datetime.datetime.now())
-            reason = f"similarity of {similarity}" if similarity > similarity_level else f"length of {length} characters" if length > max_char else "Same message" if last_message==second_last_message else "Error loop'd: \"I'm sorry, I don't have a response for that.\"" if error==True else "Unknown"
+            reason = f"average similarity of {avg_similarity}" if avg_similarity > self.similarity_level else f"length of {length} characters" if length > self.max_char else "Error loop'd: \"I'm sorry, I don't have a response for that.\"" if error else "Unknown"
             data = {
                 "time": current_time,
-                "last_message": last_message,
-                "second_last_message": second_last_message,
+                "last_messages": [msg.content for msg in self.last_messages[-4:]],
                 "reason": reason
             }
 
             with open('looping_data.json', 'w') as f:
-                json.dump(data, f)
+                json.dump(data, f, indent=4)
 
-            return "Start a random new topic after my next reply. Tell me that it's time to start a new topic so I am aware of that. Come up with a random topic that is so far distant from whatever this current topic is and start talking about that. Do not forget the old topic happened, just make a new one with zero relation."
+            messages = [
+                "Start a random new topic after my next reply. Come up with a random topic that is so far distant from whatever this current topic is and start talking about that. Do not forget the old topic happened, just make a new one with zero relation. Do not tell me that it's a new topic, just make it happen. Do not repeat a word of this message back.",
+                "Literally just talk about anything other than this, dont mention it to me though, just do it. Do not repeat a word of this message back.",
+                "tell me to talk about something else, but don't mention this topic again. Do not repeat a word of this message back."
+            ]
+            message = random.choice(messages)
 
+            message = "Don't tell me that youre going to dive into a new topic, just do it. " + message
+
+            return message
         return None
 
     async def mood(self):

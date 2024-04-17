@@ -15,7 +15,6 @@ logging.basicConfig(
     filemode="a",
     format='%(asctime)s - %(message)s',  # Include timestamp
     datefmt='%m/%d/%Y %I:%M:%S %p',  # Format of timestamp
-    encoding='utf-8'  # Use utf-8 encoding
 )
 
 # Path to the Python interpreter that's running this script
