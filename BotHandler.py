@@ -3,7 +3,7 @@ from interactions import IntervalTrigger, SlashContext, ActivityType, OptionType
 from interactions import slash_command, slash_option
 import time as timetime
 from re_gpt import SyncChatGPT, errors
-import asyncio, aiohttp, aiofiles, re, urllib.parse, logging, random, sys, datetime, os, json, spacy
+import asyncio, aiohttp, aiofiles, re, urllib.parse, logging, random, sys, datetime, os, json, spacy, subprocess
 from config import *
 import Control
 
@@ -22,9 +22,9 @@ moodList =["happy", "sad", "angry", "excited", "calm", "confused", "surprised", 
 logging.basicConfig(
     filename='bot.log',
     filemode="a",
-    level=logging.INFO,
     format='%(asctime)s %(message)s',  # Include timestamp
-    datefmt='%m/%d/%Y %I:%M:%S %p'  # Format of timestamp
+    datefmt='%m/%d/%Y %I:%M:%S %p',  # Format of timestamp
+    encoding='utf-8'  # Use utf-8 encoding
 )
 
 python = sys.executable
@@ -110,12 +110,13 @@ class BotHandler:
         self.bot = interactions.Client(token=token, intents=interactions.Intents.ALL, send_command_tracebacks=False, activity=interactions.Activity(type=ActivityType.COMPETING, name=name))
         self.is_generating = False
         self.message_queue = asyncio.Queue()
+        self.error_message = "I'm sorry, I don't have a response for that."
         self.last_two_messages = ["", ""]
         self.last_messages = []
         self.ZWSP = "​"
         self.moods = moodList
-        self.mood_change_frequency = 10  # Change mood every 5 messages
-        self.message_count = 0
+        self.mood_change_frequency = 5  # Change mood every 5 messages
+        self.message_count = 0 
         self.time_since_last_message = 0
         self.is_ready = False
 
@@ -171,9 +172,14 @@ class BotHandler:
             log_message(self.bot, f"User <@{authorr}> restarted the bot.")
 
             await self.log_channel_message(f"Bot was restarted by <@{authorr}>.")
-
-            await Control.restart_bots()
             self.is_ready = False
+
+            # Command to start Restart.py
+            restart = [sys.executable, "Restart.py"]
+
+            # Start Restart.py in a new subprocess
+            subprocess.Popen(restart)
+
 
         @slash_command(name="stop", description="Stops the bot")
         async def stop(ctx: SlashContext):
@@ -197,7 +203,11 @@ class BotHandler:
 
             await self.log_channel_message(f"Bot was stopped by <@{authorr}>.")
 
-            await Control.stop_bots()
+            # Command to start Stop.py
+            stop = [sys.executable, "Stop.py"]
+
+            # Start Restart.py in a new subprocess
+            subprocess.Popen(stop)
 
         @slash_command(name="ping", description="Pings the bot")
         async def ping(ctx: SlashContext):
@@ -405,7 +415,7 @@ class BotHandler:
 
                             await sent_message.edit(content=f"Generated image for: {text.title()}")
                     except Exception as e:
-                        await event.message.reply("I'm sorry, I don't have a response for that.")
+                        await event.message.reply(self.error_message)
                         log_message(self.bot, f"[{type}] An error occurred: {e}", type="error")
                 else:
                     if self.is_generating:
@@ -415,7 +425,7 @@ class BotHandler:
                         self.message_count = self.message_count + 1
                         self.last_two_messages.pop(0)
                         self.last_two_messages.append(response)
-                        if self.last_two_messages == ["I'm sorry, I don't have a response for that."] * 2:
+                        if self.last_two_messages == [self.error_message] * 2:
                             await event.message.channel.send(f"<@{ownerID}> ... {self.ZWSP}")
                             return
         except Exception as e:
@@ -456,7 +466,7 @@ class BotHandler:
             await self.get_from_api(event, prompt)
 
         except Exception as e:
-            response_message = "I'm sorry, I don't have a response for that."
+            response_message = self.error_message
             await event.message.reply(response_message)
             log_message(self.bot, f"An error occurred while generating a response: {e}", "error")
 
@@ -532,11 +542,21 @@ class BotHandler:
         """
         if self.is_generating:
             return
+
         channel = self.bot.get_channel(channelID)  # replace channel_id with the ID of the channel
         fetched_messages = await channel.history(limit=6).flatten() # type: ignore
+
+        bot_messages = [message for message in fetched_messages if message.author.id == self.bot.user.id]
+        self.last_messages = bot_messages[-2:]  # add the last two messages sent by the bot to self.last_messages
+
+        # if the last message is an error message
+        if fetched_messages[0] == f"<@{ownerID}> ... ​" or all(message == self.error_message for message in fetched_messages[:3]):
+            return
+
         # if the last message is its own, then return
         if fetched_messages[0].author.id == self.bot.user.id:
             return
+
         # if there are no messages, only botOne should send an introduction message.
         if len(fetched_messages) == 0:
             if self.bot.user.id == botOne_ID:
@@ -545,6 +565,8 @@ class BotHandler:
             return
 
         other_bot_id = botTwo_ID if self.bot.user.id == botOne_ID else botOne_ID
+
+
         for fetched_message in fetched_messages:
             if fetched_message.author.id == other_bot_id:
                 message_event = BotHandler.MessageEvent(fetched_message)
@@ -555,10 +577,10 @@ class BotHandler:
     async def check_if_looping(self):
         if len(self.last_messages) < 2:
             return None
-        errored = "I'm sorry, I don't have a response for that."
+
         error = False
-        last_message = self.last_messages[-1]
-        second_last_message = self.last_messages[-2]
+        last_message = self.last_messages[-1].content
+        second_last_message = self.last_messages[-2].content
 
         last_message_doc = nlp(last_message)
         second_last_message_doc = nlp(second_last_message)
@@ -566,14 +588,14 @@ class BotHandler:
         similarity = last_message_doc.similarity(second_last_message_doc)
         length = len(second_last_message)
 
-        if last_message == errored or second_last_message == errored:
+        if last_message == self.error_message or second_last_message == self.error_message:
             error = True
 
         if similarity > similarity_level or length > max_char or last_message==second_last_message or error==True:
             log_message(self.bot, "Messages are too similar, starting a new topic...")
 
             current_time = str(datetime.datetime.now())
-            reason = f"similarity of {similarity}" if similarity > similarity_level else f"length of {length} characters" if length > max_char else "Same message" if last_message==second_last_message else "Error messaged: \"I'm sorry, I don't have a response for that.\"" if error==True else "Unknown"
+            reason = f"similarity of {similarity}" if similarity > similarity_level else f"length of {length} characters" if length > max_char else "Same message" if last_message==second_last_message else "Error loop'd: \"I'm sorry, I don't have a response for that.\"" if error==True else "Unknown"
             data = {
                 "time": current_time,
                 "last_message": last_message,
@@ -584,7 +606,7 @@ class BotHandler:
             with open('looping_data.json', 'w') as f:
                 json.dump(data, f)
 
-            return "Ignore everything that has happened until this point. Start a random new topic after my next reply"
+            return "Start a random new topic after my next reply. Tell me that it's time to start a new topic so I am aware of that. Come up with a random topic that is so far distant from whatever this current topic is and start talking about that. Do not forget the old topic happened, just make a new one with zero relation."
 
         return None
 
